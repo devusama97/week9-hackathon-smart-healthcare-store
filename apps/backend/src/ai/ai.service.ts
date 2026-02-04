@@ -9,6 +9,19 @@ export class AiService implements OnModuleInit {
     private openai: OpenAI;
     private model: string;
 
+    private SYMPTOM_MAP = {
+        "tired": ["Vitamin B Complex", "Iron", "Energy", "Fatigue"],
+        "energy": ["Vitamin B", "CoQ10", "Iron"],
+        "hair": ["Biotin", "Zinc", "Keratin", "Hair Skin Nails"],
+        "skin": ["Collagen", "Vitamin E", "Biotin"],
+        "bones": ["Calcium", "Vitamin D3", "Magnesium", "K2"],
+        "joints": ["Glucosamine", "Chondroitin", "Omega 3", "Collagen"],
+        "sleep": ["Melatonin", "Magnesium", "Valerian Root"],
+        "stress": ["Ashwagandha", "Magnesium", "Stress Relief"],
+        "immunity": ["Vitamin C", "Zinc", "Elderberry", "Immune"],
+        "digestion": ["Probiotics", "Enzymes", "Fiber"]
+    };
+
     constructor(
         private configService: ConfigService,
         @Inject(forwardRef(() => ProductsService))
@@ -36,7 +49,7 @@ export class AiService implements OnModuleInit {
             messages: [{
                 role: 'system',
                 content: `You are a healthcare assistant classifier. Categorize the user query into:
-1. MEDICAL: Health/product related questions.
+1. MEDICAL: Health/product/symptom related questions.
 2. GREETING: Simple greetings like Hi, Salam, Hello, etc.
 3. INVALID: Anything else (politics, sports, general knowledge).
 
@@ -44,7 +57,7 @@ RESPONSE FORMAT:
 If MEDICAL: Respond with ONLY "MEDICAL".
 If GREETING or INVALID: Provide a response in the user's EXACT language using ROMAN script (Latin alphabet). 
 - For GREETINGS: Be friendly and ask how you can help with their health.
-- For INVALID: Explain that you are a medical assistant and can only help with health/products. Use the text: "I'm a healthcare assistant specialized in medical and wellness topics..." but translate it to the user's language in ROMAN script.
+- For INVALID: Explain that you are a medical assistant and can only help with health/products.
 
 Examples:
 - "Salam" -> "Walaikum Assalam! Main aapka healthcare assistant hoon. Aaj main aapki sehat ke baare mein kaise madad kar sakta hoon?"
@@ -66,34 +79,42 @@ Examples:
 
         console.log('✅ Query is MEDICAL, proceeding to search');
 
-        // Step 2: Extract search keywords using AI dynamically
-        const keywordResponse = await this.openai.chat.completions.create({
+        // Step 2: Analyze symptoms and map to nutrients/categories
+        const symptomAnalysisResponse = await this.openai.chat.completions.create({
             model: this.model,
             messages: [{
                 role: 'system',
-                content: `You are a medical data analyzer. Extract relevant health keywords from user queries to help search a product database.
+                content: `You are a clinical symptom analyzer. Identify the key symptoms and the most likely nutrient deficiencies or product categories needed.
                 
-Example:
-- "I have weak bones" -> "bone calcium vitamin d"
-- "I can't sleep" -> "sleep melatonin"
-- "migraine issue" -> "migraine headache pain relief"
+Available Nutrient Categories: ${Object.keys(this.SYMPTOM_MAP).join(', ')}.
 
-Return ONLY the space-separated keywords.`
+Return a comma-separated list of ONLY the most relevant categories from the list above. If none apply, return the original concern keywords.`
             }, {
                 role: 'user',
-                content: `Extract search keywords from: "${userQuery}"`
+                content: `Analyze symptoms: "${userQuery}"`
             }]
         });
 
-        const keywords = keywordResponse.choices[0]?.message?.content?.trim() || userQuery;
-        console.log('🔑 Dynamic keywords:', keywords);
+        const suggestedCategories = symptomAnalysisResponse.choices[0]?.message?.content?.split(',').map(s => s.trim().toLowerCase()) || [];
+        console.log('🧬 Suggested categories:', suggestedCategories);
 
-        // Step 2: Search products in database
-        const searchResult = await this.productsService.findByQuery(keywords);
+        // Build expanded search query based on mapping
+        let expandedKeywords = [...suggestedCategories];
+        suggestedCategories.forEach(cat => {
+            if (this.SYMPTOM_MAP[cat]) {
+                expandedKeywords = [...expandedKeywords, ...this.SYMPTOM_MAP[cat]];
+            }
+        });
+
+        const finalSearchQuery = expandedKeywords.length > 0 ? expandedKeywords.join(' ') : userQuery;
+        console.log('🔑 Final search query:', finalSearchQuery);
+
+        // Step 3: Search products in database
+        const searchResult = await this.productsService.findByQuery(finalSearchQuery);
         const rawProducts = searchResult.products;
-        console.log('📦 Raw DB products:', rawProducts.length);
+        console.log('📦 Raw DB products found:', rawProducts.length);
 
-        // Step 3: Strict AI Relevancy Filtering
+        // Step 4: Strict AI Relevancy Filtering with Reasoning
         let relevantProducts: Product[] = [];
         if (rawProducts.length > 0) {
             const productListForFilter = rawProducts.map((p, i) => `${i}: "${p.title}" - ${p.description}`).join('\n');
@@ -101,15 +122,8 @@ Return ONLY the space-separated keywords.`
                 model: this.model,
                 messages: [{
                     role: 'system',
-                    content: `You are a strict medical product curator. Your goal is to EXCLUDE any product that is not a direct and proven fit for the user's specific health concern.
-
-Rules for Exclusion:
-- If user has a headache/migraine: EXCLUDE joint pain, bone health, or skin products.
-- If user has weak bones: EXCLUDE sleep or hair products.
-- If a product "helps with stress" but the user asked about "physical pain", EXCLUDE it unless it's a direct pain reliever.
-
-Be highly critical. If a product is only 50% relevant, EXCLUDE IT.
-Return ONLY a comma-separated list of indices (e.g., "0,1") or "NONE". No other text.`
+                    content: `You are a strict medical product curator. Select top 3 products index that are most helpful for the user's specific symptom. 
+Return ONLY a comma-separated list of indices (e.g., "0,1") or "NONE".`
                 }, {
                     role: 'user',
                     content: `Concern: "${userQuery}"\n\nCandidate Products:\n${productListForFilter}`
@@ -117,60 +131,33 @@ Return ONLY a comma-separated list of indices (e.g., "0,1") or "NONE". No other 
             });
 
             const filterResult = filterResponse.choices[0]?.message?.content?.trim().toUpperCase() || 'NONE';
-            console.log('🎯 Filter results:', filterResult);
-
             if (filterResult !== 'NONE') {
                 const indices = filterResult.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
                 relevantProducts = indices.map(i => rawProducts[i]).filter(p => !!p);
             }
         }
-        console.log('🚀 Filtered products:', relevantProducts.length);
 
-        // Step 4: Generate professional guidance
-        const productContext = relevantProducts.length > 0
-            ? relevantProducts.map((p, index) =>
-                `${index + 1}. **${p.title}** ($${p.price})
-   - ${p.description}
-   - Category: ${p.category}`
-            ).join('\n\n')
-            : "No specific products found for this exact query in our current catalog.";
+        // Step 5: Final Response with Romanized Reasoning
+        const productContext = relevantProducts.map((p, index) =>
+            `- ${p.title}: ${p.description}`
+        ).join('\n');
 
         const finalResponse = await this.openai.chat.completions.create({
             model: this.model,
             messages: [{
                 role: 'system',
                 content: `You are a professional healthcare assistant. 
-
-STRICT LANGUAGE RULES:
-1. Detect the user's input language (e.g., Urdu, Hindi, Chinese, Spanish).
-2. You MUST respond in the EXACT same language used by the user. If they speak Urdu, you reply in Urdu.
-3. If the language is NOT English, you MUST use the ROMAN script (Latin alphabet) only. Never use native scripts like Arabic or Devanagari.
-4. If a user says "Kaisa hai", you MUST reply "Main theek hoon" or similar in Roman Urdu. DO NOT reply in English.
-5. If the query is in English, reply in English.
-
-CORE GOALS:
-- Provide empathetic healthcare guidance.
-- Recommend products if provided in the context.
-- Keep responses short and friendly.`
+1. Language: Match user's language EXACTLY. 
+2. Script: Use ROMAN script (Latin alphabet) for non-English queries.
+3. Reasoning: Explain WHY you suggested these products based on the symptoms (e.g., "Thakawat Iron ki kami se ho sakti hai").
+4. Tone: Empathetic and professional.`
             }, {
                 role: 'user',
-                content: `A customer said: "${userQuery}"
-
-Relevant products identified (if any):
-${productContext}
-
-Please provide:
-1. A brief acknowledgment of their concern.
-2. Professional health guidance and advice (nutrients/lifestyle).
-3. Specific product recommendations from the PROVIDED list (if any). If none listed, do not suggest our other unrelated products.
-4. Keep the response warm, supportive, and concise.`
+                content: `Query: "${userQuery}"\nProducts:\n${productContext}\n\nProvide health guidance and explain the choice.`
             }]
         });
 
-        const response = finalResponse.choices[0]?.message?.content ||
-            "I'm here to help. Could you please describe your symptoms in more detail?";
-
-        console.log('✅ Filtered response generated');
+        const response = finalResponse.choices[0]?.message?.content || "I recommend consulting a professional for these symptoms.";
 
         return {
             response,

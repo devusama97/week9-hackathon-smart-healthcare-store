@@ -6,7 +6,7 @@ import { getMedicineBadge, getVibrantColor } from '@/utils/placeholderUtils';
 export default function ChatBot() {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([
-        { role: 'bot', content: 'Hello! I am your HealthCare assistant. How can I help you today?' }
+        { role: 'bot', content: 'Hello! I am your AI Health Assistant. Describe your symptoms (e.g., "I feel tired and weak"), and I will suggest the best products for you.' }
     ]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
