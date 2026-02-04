@@ -23,7 +23,8 @@ export default function SignupPage() {
             await signup(email, password, name);
             router.push('/login');
         } catch (err) {
-            setError('Signup failed. Email might already exist.');
+            console.error(err);
+            setError(err.response?.data?.message || 'Signup failed. Please try again.');
         }
     };
 
