@@ -30,36 +30,41 @@ export class AiService implements OnModuleInit {
     async runAgentFlow(userQuery: string) {
         console.log('🔍 User Query:', userQuery);
 
-        // Step 1: Validate if query is medical/healthcare related
-        const validationResponse = await this.openai.chat.completions.create({
+        // Step 1: Validate and handle Greetings/Off-topic
+        const classificationResponse = await this.openai.chat.completions.create({
             model: this.model,
             messages: [{
                 role: 'system',
-                content: `You are a medical query validator. Determine if the user's question is related to health, medical conditions, symptoms, healthcare products, wellness, or nutrition.
+                content: `You are a healthcare assistant classifier. Categorize the user query into:
+1. MEDICAL: Health/product related questions.
+2. GREETING: Simple greetings like Hi, Salam, Hello, etc.
+3. INVALID: Anything else (politics, sports, general knowledge).
 
-Examples of VALID queries:
-- "I have a headache"
-- "What helps with sleep?"
-- "Who is babar azam?" - INVALID (sports/cricket)
-- "What is the capital of France?" - INVALID (general knowledge)
-- "How to cook rice?" - INVALID (cooking)
+RESPONSE FORMAT:
+If MEDICAL: Respond with ONLY "MEDICAL".
+If GREETING or INVALID: Provide a response in the user's EXACT language using ROMAN script (Latin alphabet). 
+- For GREETINGS: Be friendly and ask how you can help with their health.
+- For INVALID: Explain that you are a medical assistant and can only help with health/products. Use the text: "I'm a healthcare assistant specialized in medical and wellness topics..." but translate it to the user's language in ROMAN script.
 
-Respond with ONLY "VALID" or "INVALID". Nothing else.`
+Examples:
+- "Salam" -> "Walaikum Assalam! Main aapka healthcare assistant hoon. Aaj main aapki sehat ke baare mein kaise madad kar sakta hoon?"
+- "Cricket score?" -> "Main sirf healthcare aur medical topics par baat kar sakta hoon. Meherbaani karke sehat se mutaliq sawal poochein."`
             }, {
                 role: 'user',
-                content: `Is this a medical/healthcare query? "${userQuery}"`
+                content: `Classify and respond: "${userQuery}"`
             }]
         });
 
-        const isValid = validationResponse.choices[0]?.message?.content?.trim().toUpperCase() === 'VALID';
-        console.log('✅ Query validation:', isValid ? 'VALID' : 'INVALID');
+        const aiFeedback = classificationResponse.choices[0]?.message?.content?.trim() || "INVALID";
 
-        if (!isValid) {
+        if (aiFeedback !== "MEDICAL") {
             return {
-                response: "I'm a healthcare assistant specialized in medical and wellness topics. I can only help with health-related questions, symptoms, and healthcare product recommendations. Please ask me about your health concerns, and I'll be happy to assist! 😊",
+                response: aiFeedback,
                 suggestedProducts: []
             };
         }
+
+        console.log('✅ Query is MEDICAL, proceeding to search');
 
         // Step 2: Extract search keywords using AI dynamically
         const keywordResponse = await this.openai.chat.completions.create({
@@ -134,11 +139,19 @@ Return ONLY a comma-separated list of indices (e.g., "0,1") or "NONE". No other 
             model: this.model,
             messages: [{
                 role: 'system',
-                content: `You are a professional healthcare advisor. Your role is to:
-1. Provide helpful, empathetic guidance based on the user's health concern.
-2. If specific products are provided (RELEVANT_ONLY), explain WHY they are recommended.
-3. If NO products are provided, still provide professional advice, suggest common nutrients or home remedies, and mention that while we don't have a matching product right now, they should look for products in certain categories (e.g., "pain relief").
-4. Always provide health guidance, regardless of product availability. Do not force irrelevant products. Do NOT include word counts or meta-commentary like "(120 words)" at the end.`
+                content: `You are a professional healthcare assistant. 
+
+STRICT LANGUAGE RULES:
+1. Detect the user's input language (e.g., Urdu, Hindi, Chinese, Spanish).
+2. You MUST respond in the EXACT same language used by the user. If they speak Urdu, you reply in Urdu.
+3. If the language is NOT English, you MUST use the ROMAN script (Latin alphabet) only. Never use native scripts like Arabic or Devanagari.
+4. If a user says "Kaisa hai", you MUST reply "Main theek hoon" or similar in Roman Urdu. DO NOT reply in English.
+5. If the query is in English, reply in English.
+
+CORE GOALS:
+- Provide empathetic healthcare guidance.
+- Recommend products if provided in the context.
+- Keep responses short and friendly.`
             }, {
                 role: 'user',
                 content: `A customer said: "${userQuery}"

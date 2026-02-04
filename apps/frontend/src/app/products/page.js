@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react';
 import { fetchProducts, aiSearch } from '@/services/productService';
 import ProductCard from '@/components/ProductCard';
-import ChatBot from '@/components/ChatBot';
 import styles from './products.module.css';
 
 export default function ProductsPage() {
@@ -250,8 +249,7 @@ export default function ProductsPage() {
                 )}
             </div>
 
-            {/* Persistent ChatBot widget */}
-            <ChatBot />
+            {/* Remaining page content */}
         </div>
     );
 }
