@@ -1,0 +1,38 @@
+/* Mobile responsive styles for home page */
+
+@media (max-width: 768px) {
+    .homeContainer {
+        padding: 2rem 1rem !important;
+    }
+
+    .heroSection {
+        padding: 2rem 1.5rem 3rem 1.5rem !important;
+    }
+
+    .heroTitle {
+        font-size: 2rem !important;
+    }
+
+    .heroDescription {
+        font-size: 1rem !important;
+    }
+
+    .featureGrid {
+        grid-template-columns: 1fr !important;
+        gap: 1.5rem !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .homeContainer {
+        padding: 1.5rem 1rem !important;
+    }
+
+    .heroSection {
+        padding: 1.5rem 1rem 2.5rem 1rem !important;
+    }
+
+    .heroTitle {
+        font-size: 1.75rem !important;
+    }
+}
