@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { fetchProducts, aiSearch } from '@/services/productService';
+import { getCurrentUser } from '@/services/authService';
+import { useRouter } from 'next/navigation';
 import ProductCard from '@/components/ProductCard';
 import styles from './products.module.css';
 
@@ -10,6 +12,7 @@ export default function ProductsPage() {
     const [isAiMode, setIsAiMode] = useState(false);
     const [loading, setLoading] = useState(true);
     const [aiMessage, setAiMessage] = useState('');
+    const router = useRouter();
 
     useEffect(() => {
         const delayDebounceFn = setTimeout(() => {
@@ -36,6 +39,13 @@ export default function ProductsPage() {
     const [matchType, setMatchType] = useState('all');
 
     const performSearch = async () => {
+        // Auth Check
+        const currentUser = getCurrentUser();
+        if (!currentUser) {
+            router.push('/login');
+            return;
+        }
+
         setLoading(true);
         setAiMessage('');
         setMatchType('none');
@@ -50,12 +60,13 @@ export default function ProductsPage() {
                     setProducts(agentResponse);
                     setMatchType('related');
                 } else {
-                    const allData = await fetchProducts();
+                    const allData = await fetchProducts(undefined, isAiMode);
                     setProducts(allData);
                     setMatchType('all');
                 }
             } else {
-                const data = await fetchProducts(search);
+                // Pass isAiMode to fetchProducts
+                const data = await fetchProducts(search, isAiMode);
                 // The new backend response structure: { products, matchType, aiResponse }
                 if (data && typeof data === 'object' && !Array.isArray(data)) {
                     setProducts(data.products || []);

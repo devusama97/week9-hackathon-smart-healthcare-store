@@ -11,7 +11,8 @@ export class ProductsController {
     ) { }
 
     @Get()
-    async getProducts(@Query('search') search?: string) {
+    async getProducts(@Query('search') search?: string, @Query('aiMode') aiMode?: string) {
+        console.log(`🔎 Search: "${search}" | AI Mode: ${aiMode}`);
         if (!search || search.trim() === '') {
             return {
                 products: await this.productsService.findAll(),
@@ -20,23 +21,31 @@ export class ProductsController {
             };
         }
 
-        // Layer 1 & 2: Exact and Related matches
-        const searchResult = await this.productsService.findByQuery(search);
+        // Layer 3: AI Intent / Semantic Search
+        // If AI mode is ON, we go straight to AI to handle symptoms/natural language
+        if (aiMode === 'true') {
+            const aiResult = await this.aiService.runAgentFlow(search);
 
-        if (searchResult.matchType !== 'none') {
             return {
-                ...searchResult,
-                aiResponse: null
+                products: aiResult.suggestedProducts,
+                matchType: aiResult.suggestedProducts.length > 0 ? 'semantic' : 'none',
+                aiResponse: aiResult.response
             };
         }
 
-        // Layer 3: AI Intent / Semantic Fallback
-        const aiResult = await this.aiService.runAgentFlow(search);
+        // Layer 1: Simple Mode - Exact/Keyword Match only
+        const searchResult = await this.productsService.findByQuery(search, true);
 
         return {
-            products: aiResult.suggestedProducts,
-            matchType: aiResult.suggestedProducts.length > 0 ? 'semantic' : 'none',
-            aiResponse: aiResult.response
+            ...searchResult,
+            aiResponse: null
+        };
+
+        // Default: No results found in simple mode
+        return {
+            products: [],
+            matchType: 'none',
+            aiResponse: null
         };
     }
 }

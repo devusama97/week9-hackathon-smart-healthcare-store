@@ -1,9 +1,14 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
-export const fetchProducts = async (search = '') => {
-    const url = search
+export const fetchProducts = async (search = '', aiMode = false) => {
+    let url = search
         ? `${API_URL}/products?search=${encodeURIComponent(search)}`
         : `${API_URL}/products`;
+
+    if (search && aiMode) {
+        url += `&aiMode=true`;
+    }
+
     const response = await fetch(url);
     return response.json();
 };

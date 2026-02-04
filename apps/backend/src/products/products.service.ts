@@ -13,7 +13,7 @@ export class ProductsService {
         return this.productModel.find().exec();
     }
 
-    async findByQuery(query: string): Promise<{ products: Product[], matchType: 'exact' | 'related' | 'none' }> {
+    async findByQuery(query: string, exactOnly: boolean = false): Promise<{ products: Product[], matchType: 'exact' | 'related' | 'none' }> {
         // List of common non-medical words to ignore in simple search
         const STOP_WORDS = new Set(['i', 'me', 'my', 'eat', 'food', 'daily', 'the', 'and', 'was', 'for', 'with', 'about', 'this', 'that']);
 
@@ -21,12 +21,18 @@ export class ProductsService {
         if (!cleanQuery) return { products: [], matchType: 'none' };
 
         // Layer 1: Exact Title Match (Case Insensitive)
+        // Using word boundaries to be more flexible than strict start/end anchors
         const exactMatch = await this.productModel.findOne({
-            title: { $regex: `^${cleanQuery}$`, $options: 'i' }
+            title: { $regex: `\\b${cleanQuery}\\b`, $options: 'i' }
         }).exec();
 
         if (exactMatch) {
             return { products: [exactMatch], matchType: 'exact' };
+        }
+
+        // Return early if ONLY exact match is requested
+        if (exactOnly) {
+            return { products: [], matchType: 'none' };
         }
 
         // Layer 2: Partial Keyword Match
