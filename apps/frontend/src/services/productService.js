@@ -15,6 +15,12 @@ export const fetchProducts = async (search = '', aiMode = false) => {
 
 export const aiSearch = async (query) => {
     const response = await fetch(`${API_URL}/ai/search?q=${encodeURIComponent(query)}`);
+    if (!response.ok) {
+        return {
+            response: "Network error or server issue. Please try again.",
+            suggestedProducts: []
+        };
+    }
     return response.json();
 };
 
@@ -24,5 +30,11 @@ export const chatWithAi = async (message) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message }),
     });
+    if (!response.ok) {
+        return {
+            response: "I'm having trouble connecting right now. Please try again later.",
+            suggestedProducts: []
+        };
+    }
     return response.json();
 };

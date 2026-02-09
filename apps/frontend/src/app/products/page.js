@@ -240,7 +240,7 @@ export default function ProductsPage() {
                         )}
 
                         <div className={styles.productGrid} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '2rem' }}>
-                            {products.map(product => (
+                            {Array.isArray(products) && products.map(product => (
                                 <ProductCard key={product._id} product={product} />
                             ))}
                         </div>

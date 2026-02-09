@@ -41,14 +41,15 @@ export class AiService implements OnModuleInit {
     }
 
     async runAgentFlow(userQuery: string) {
-        console.log('🔍 User Query:', userQuery);
+        try {
+            console.log('🔍 User Query:', userQuery);
 
-        // Step 1: Validate and handle Greetings/Off-topic
-        const classificationResponse = await this.openai.chat.completions.create({
-            model: this.model,
-            messages: [{
-                role: 'system',
-                content: `You are a healthcare assistant classifier. Categorize the user query into:
+            // Step 1: Validate and handle Greetings/Off-topic
+            const classificationResponse = await this.openai.chat.completions.create({
+                model: this.model,
+                messages: [{
+                    role: 'system',
+                    content: `You are a healthcare assistant classifier. Categorize the user query into:
 1. MEDICAL: Health/product/symptom related questions.
 2. GREETING: Simple greetings like Hi, Salam, Hello, etc.
 3. INVALID: Anything else (politics, sports, general knowledge).
@@ -62,91 +63,100 @@ If GREETING or INVALID: Provide a response in the user's EXACT language using RO
 Examples:
 - "Salam" -> "Walaikum Assalam! Main aapka healthcare assistant hoon. Aaj main aapki sehat ke baare mein kaise madad kar sakta hoon?"
 - "Cricket score?" -> "Main sirf healthcare aur medical topics par baat kar sakta hoon. Meherbaani karke sehat se mutaliq sawal poochein."`
-            }, {
-                role: 'user',
-                content: `Classify and respond: "${userQuery}"`
-            }]
-        });
+                }, {
+                    role: 'user',
+                    content: `Classify and respond: "${userQuery}"`
+                }]
+            });
 
-        const aiFeedback = classificationResponse.choices[0]?.message?.content?.trim() || "INVALID";
+            const aiFeedback = classificationResponse.choices[0]?.message?.content?.trim() || "INVALID";
 
-        if (aiFeedback !== "MEDICAL") {
-            return {
-                response: aiFeedback,
-                suggestedProducts: []
-            };
-        }
+            if (aiFeedback !== "MEDICAL") {
+                return {
+                    response: aiFeedback,
+                    suggestedProducts: []
+                };
+            }
 
-        console.log('✅ Query is MEDICAL, proceeding to search');
+            console.log('✅ Query is MEDICAL, proceeding to search');
 
-        // Step 2: Analyze symptoms and map to nutrients/categories
-        const symptomAnalysisResponse = await this.openai.chat.completions.create({
-            model: this.model,
-            messages: [{
-                role: 'system',
-                content: `You are a clinical symptom analyzer. Identify the key symptoms and the most likely nutrient deficiencies or product categories needed.
+            // Step 2: Analyze symptoms and map to nutrients/categories
+            const symptomAnalysisResponse = await this.openai.chat.completions.create({
+                model: this.model,
+                messages: [{
+                    role: 'system',
+                    content: `You are a clinical symptom analyzer. Identify the key symptoms and the most likely nutrient deficiencies or product categories needed.
                 
 Available Nutrient Categories: ${Object.keys(this.SYMPTOM_MAP).join(', ')}.
 
 Return a comma-separated list of ONLY the most relevant categories from the list above. If none apply, return the original concern keywords.`
-            }, {
-                role: 'user',
-                content: `Analyze symptoms: "${userQuery}"`
-            }]
-        });
-
-        const suggestedCategories = symptomAnalysisResponse.choices[0]?.message?.content?.split(',').map(s => s.trim().toLowerCase()) || [];
-        console.log('🧬 Suggested categories:', suggestedCategories);
-
-        // Build expanded search query based on mapping
-        let expandedKeywords = [...suggestedCategories];
-        suggestedCategories.forEach(cat => {
-            if (this.SYMPTOM_MAP[cat]) {
-                expandedKeywords = [...expandedKeywords, ...this.SYMPTOM_MAP[cat]];
-            }
-        });
-
-        const finalSearchQuery = expandedKeywords.length > 0 ? expandedKeywords.join(' ') : userQuery;
-        console.log('🔑 Final search query:', finalSearchQuery);
-
-        // Step 3: Search products in database
-        const searchResult = await this.productsService.findByQuery(finalSearchQuery);
-        const rawProducts = searchResult.products;
-        console.log('📦 Raw DB products found:', rawProducts.length);
-
-        // Step 4: Strict AI Relevancy Filtering with Reasoning
-        let relevantProducts: Product[] = [];
-        if (rawProducts.length > 0) {
-            const productListForFilter = rawProducts.map((p, i) => `${i}: "${p.title}" - ${p.description}`).join('\n');
-            const filterResponse = await this.openai.chat.completions.create({
-                model: this.model,
-                messages: [{
-                    role: 'system',
-                    content: `You are a strict medical product curator. Select top 3 products index that are most helpful for the user's specific symptom. 
-Return ONLY a comma-separated list of indices (e.g., "0,1") or "NONE".`
                 }, {
                     role: 'user',
-                    content: `Concern: "${userQuery}"\n\nCandidate Products:\n${productListForFilter}`
+                    content: `Analyze symptoms: "${userQuery}"`
                 }]
             });
 
-            const filterResult = filterResponse.choices[0]?.message?.content?.trim().toUpperCase() || 'NONE';
-            if (filterResult !== 'NONE') {
-                const indices = filterResult.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-                relevantProducts = indices.map(i => rawProducts[i]).filter(p => !!p);
+            const suggestedCategories = symptomAnalysisResponse.choices[0]?.message?.content?.split(',').map(s => s.trim().toLowerCase()) || [];
+            console.log('🧬 Suggested categories:', suggestedCategories);
+
+            // Build expanded search query based on mapping
+            let expandedKeywords = [...suggestedCategories];
+            suggestedCategories.forEach(cat => {
+                if (this.SYMPTOM_MAP[cat]) {
+                    expandedKeywords = [...expandedKeywords, ...this.SYMPTOM_MAP[cat]];
+                }
+            });
+
+            const finalSearchQuery = expandedKeywords.length > 0 ? expandedKeywords.join(' ') : userQuery;
+            console.log('🔑 Final search query:', finalSearchQuery);
+
+            // Step 3: Search products in database
+            const searchResult = await this.productsService.findByQuery(finalSearchQuery);
+            const rawProducts = searchResult.products;
+            console.log('📦 Raw DB products found:', rawProducts.length);
+
+            // Step 4: Strict AI Relevancy Filtering with Reasoning
+            let relevantProducts: Product[] = [];
+            if (rawProducts.length > 0) {
+                // OPTIMIZATION: Limit to top 15 products to save tokens
+                const limitedProducts = rawProducts.slice(0, 15);
+
+                const productListForFilter = limitedProducts.map((p, i) => {
+                    // OPTIMIZATION: Truncate description to 400 chars
+                    const desc = p.description.length > 400 ? p.description.substring(0, 400) + '...' : p.description;
+                    return `${i}: "${p.title}" - ${desc}`;
+                }).join('\n');
+
+                const filterResponse = await this.openai.chat.completions.create({
+                    model: this.model,
+                    max_tokens: 500, // Limit output tokens
+                    messages: [{
+                        role: 'system',
+                        content: `You are a strict medical product curator. Select top 3 products index that are most helpful for the user's specific symptom. 
+Return ONLY a comma-separated list of indices (e.g., "0,1") or "NONE".`
+                    }, {
+                        role: 'user',
+                        content: `Concern: "${userQuery}"\n\nCandidate Products:\n${productListForFilter}`
+                    }]
+                });
+
+                const filterResult = filterResponse.choices[0]?.message?.content?.trim().toUpperCase() || 'NONE';
+                if (filterResult !== 'NONE') {
+                    const indices = filterResult.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+                    relevantProducts = indices.map(i => limitedProducts[i]).filter(p => !!p);
+                }
             }
-        }
 
-        // Step 5: Final Response with Romanized Reasoning
-        const productContext = relevantProducts.map((p, index) =>
-            `- ${p.title}: ${p.description}`
-        ).join('\n');
+            // Step 5: Final Response with Romanized Reasoning
+            const productContext = relevantProducts.map((p, index) =>
+                `- ${p.title}: ${p.description}`
+            ).join('\n');
 
-        const finalResponse = await this.openai.chat.completions.create({
-            model: this.model,
-            messages: [{
-                role: 'system',
-                content: `You are the AI assistant for a healthcare products app.
+            const finalResponse = await this.openai.chat.completions.create({
+                model: this.model,
+                messages: [{
+                    role: 'system',
+                    content: `You are the AI assistant for a healthcare products app.
 Your job is to help users find products through the search bar.
 
 Searchbar Rules:
@@ -157,18 +167,27 @@ Searchbar Rules:
    - Language: Match user's language EXACTLY.
    - Script: Use ROMAN script (Latin alphabet) for non-English queries.
    - Tone: Empathetic and professional.`
-            }, {
-                role: 'user',
-                content: `Query: "${userQuery}"\nProducts:\n${productContext}\n\nProvide health guidance and explain the choice.`
-            }]
-        });
+                }, {
+                    role: 'user',
+                    content: `Query: "${userQuery}"\nProducts:\n${productContext}\n\nProvide health guidance and explain the choice.`
+                }]
+            });
 
-        const response = finalResponse.choices[0]?.message?.content || "I recommend consulting a professional for these symptoms.";
+            const response = finalResponse.choices[0]?.message?.content || "I recommend consulting a professional for these symptoms.";
 
-        return {
-            response,
-            suggestedProducts: relevantProducts
-        };
+            return {
+                response,
+                suggestedProducts: relevantProducts
+            };
+
+        } catch (error) {
+            console.error("❌ AI Agent Flow Error:", error);
+            // Return a safe fallback response so the frontend doesn't crash
+            return {
+                response: "I apologize, but I'm unable to process your request at the moment. Please try searching for keywords directly.",
+                suggestedProducts: []
+            };
+        }
     }
 
     // Maintaining old methods for compatibility
